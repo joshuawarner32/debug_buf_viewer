@@ -93,7 +93,13 @@ struct EncodedFile {
     text: std::string::String,
 }
 
+struct Buffer {
+    rows: Vec<Row>,
+    cursor: CursorController,
+}
+
 struct EditorRows {
+    external_files: HashMap<PathBuf, Buffer>,
     row_contents: Vec<Row>,
     filename: Option<PathBuf>,
     raw: EncodedFile,
@@ -111,6 +117,7 @@ impl EditorRows {
             row_contents.push(row);
         });
         Self {
+            external_files: HashMap::new(),
             filename: Some(file),
             row_contents,
             raw,
@@ -127,10 +134,6 @@ impl EditorRows {
 
     fn get_editor_row(&self, at: usize) -> &Row {
         &self.row_contents[at]
-    }
-
-    fn get_editor_row_mut(&mut self, at: usize) -> &mut Row {
-        &mut self.row_contents[at]
     }
 
     fn render_row(row: &mut Row) {
@@ -152,19 +155,6 @@ impl EditorRows {
                 row.render.push(c);
             }
         });
-    }
-
-    fn insert_row(&mut self, at: usize, contents: String) {
-        let mut new_row = Row::new(contents, String::new());
-        EditorRows::render_row(&mut new_row);
-        self.row_contents.insert(at, new_row);
-    }
-
-    fn join_adjacent_rows(&mut self, at: usize) {
-        let current_row = self.row_contents.remove(at);
-        let previous_row = self.get_editor_row_mut(at - 1);
-        previous_row.row_content.push_str(&current_row.row_content);
-        Self::render_row(previous_row);
     }
 }
 
@@ -314,7 +304,6 @@ struct Output {
     cursor_controller: CursorController,
     editor_rows: EditorRows,
     status_message: StatusMessage,
-    dirty: u64,
 }
 
 impl Output {
@@ -330,7 +319,6 @@ impl Output {
             status_message: StatusMessage::new(
                 "HELP: Ctrl-Q = Quit".into(),
             ),
-            dirty: 0,
         }
     }
 
@@ -351,76 +339,17 @@ impl Output {
         }
     }
 
-    fn delete_char(&mut self) {
-        if self.cursor_controller.cursor_y == self.editor_rows.number_of_rows() {
-            return;
-        }
-        if self.cursor_controller.cursor_y == 0 && self.cursor_controller.cursor_x == 0 {
-            return;
-        }
-        if self.cursor_controller.cursor_x > 0 {
-            self.editor_rows
-                .get_editor_row_mut(self.cursor_controller.cursor_y)
-                .delete_char(self.cursor_controller.cursor_x - 1);
-            self.cursor_controller.cursor_x -= 1;
-        } else {
-            let previous_row_content = self
-                .editor_rows
-                .get_row(self.cursor_controller.cursor_y - 1);
-            self.cursor_controller.cursor_x = previous_row_content.len();
-            self.editor_rows
-                .join_adjacent_rows(self.cursor_controller.cursor_y);
-            self.cursor_controller.cursor_y -= 1;
-        }
-        self.dirty += 1;
-    }
-
-    fn insert_newline(&mut self) {
-        if self.cursor_controller.cursor_x == 0 {
-            self.editor_rows
-                .insert_row(self.cursor_controller.cursor_y, String::new())
-        } else {
-            let current_row = self
-                .editor_rows
-                .get_editor_row_mut(self.cursor_controller.cursor_y);
-            let new_row_content = current_row.row_content[self.cursor_controller.cursor_x..].into();
-            current_row
-                .row_content
-                .truncate(self.cursor_controller.cursor_x);
-            EditorRows::render_row(current_row);
-            self.editor_rows
-                .insert_row(self.cursor_controller.cursor_y + 1, new_row_content);
-        }
-        self.cursor_controller.cursor_x = 0;
-        self.cursor_controller.cursor_y += 1;
-        self.dirty += 1;
-    }
-
-    fn insert_char(&mut self, ch: char) {
-        if self.cursor_controller.cursor_y == self.editor_rows.number_of_rows() {
-            self.editor_rows
-                .insert_row(self.editor_rows.number_of_rows(), String::new());
-            self.dirty += 1;
-        }
-        self.editor_rows
-            .get_editor_row_mut(self.cursor_controller.cursor_y)
-            .insert_char(self.cursor_controller.cursor_x, ch);
-        self.cursor_controller.cursor_x += 1;
-        self.dirty += 1;
-    }
-
     fn draw_status_bar(&mut self) {
         self.editor_contents
             .push_str(&style::Attribute::Reverse.to_string());
         let info = format!(
-            "{} {} -- {} lines",
+            "{} -- {} lines",
             self.editor_rows
                 .filename
                 .as_ref()
                 .and_then(|path| path.file_name())
                 .and_then(|name| name.to_str())
                 .unwrap_or("[No Name]"),
-            if self.dirty > 0 { "(modified)" } else { "" },
             self.editor_rows.number_of_rows()
         );
         let info_len = cmp::min(info.len(), self.win_size.0);
@@ -542,6 +471,36 @@ impl Editor {
                 return Ok(false);
             }
             KeyEvent {
+                code: KeyCode::Char('w'),
+                modifiers: KeyModifiers::NONE,
+            } => {
+                todo!();
+            }
+            KeyEvent {
+                code: KeyCode::Char('a'),
+                modifiers: KeyModifiers::NONE,
+            } => {
+                todo!();
+            }
+            KeyEvent {
+                code: KeyCode::Char('s'),
+                modifiers: KeyModifiers::NONE,
+            } => {
+                todo!();
+            }
+            KeyEvent {
+                code: KeyCode::Char('d'),
+                modifiers: KeyModifiers::NONE,
+            } => {
+                todo!();
+            }
+            KeyEvent {
+                code: KeyCode::Char('/'),
+                modifiers: KeyModifiers::NONE,
+            } => {
+                todo!();
+            }
+            KeyEvent {
                 code:
                     direction
                     @
@@ -574,27 +533,6 @@ impl Editor {
                     });
                 })
             }
-            KeyEvent {
-                code: key @ (KeyCode::Backspace | KeyCode::Delete),
-                modifiers: KeyModifiers::NONE,
-            } => {
-                if matches!(key, KeyCode::Delete) {
-                    self.output.move_cursor(KeyCode::Right)
-                }
-                self.output.delete_char()
-            }
-            KeyEvent {
-                code: KeyCode::Enter,
-                modifiers: KeyModifiers::NONE,
-            } => self.output.insert_newline(),
-            KeyEvent {
-                code: code @ (KeyCode::Char(..) | KeyCode::Tab),
-                modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
-            } => self.output.insert_char(match code {
-                KeyCode::Tab => '\t',
-                KeyCode::Char(ch) => ch,
-                _ => unreachable!(),
-            }),
             _ => {}
         }
         Ok(true)
