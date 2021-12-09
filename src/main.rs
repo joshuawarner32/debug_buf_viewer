@@ -5,6 +5,7 @@ use crossterm::style::*;
 use crossterm::terminal::ClearType;
 use crossterm::{cursor, event, execute, queue, style, terminal};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::io::{stdout, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -75,25 +76,34 @@ impl Row {
         EditorRows::render_row(self)
     }
 }
+#[derive(serde::Deserialize)]
+struct EncodedFrame {
+    addr: Option<u64>,
+    name: Option<std::string::String>,
+    filename: Option<std::path::PathBuf>,
+    lineno: Option<u32>,
+    colno: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+struct EncodedFile {
+    addrs: HashMap<u64, Vec<EncodedFrame>>,
+    frames: Vec<(u64, usize)>,
+    ranges: Vec<(usize, usize)>,
+    text: std::string::String,
+}
 
 struct EditorRows {
     row_contents: Vec<Row>,
     filename: Option<PathBuf>,
+    raw: EncodedFile,
 }
 
 impl EditorRows {
-    fn new() -> Self {
-        match env::args().nth(1) {
-            None => Self {
-                row_contents: Vec::new(),
-                filename: None,
-            },
-            Some(file) => Self::from_file(file.into()),
-        }
-    }
-
     fn from_file(file: PathBuf) -> Self {
-        let file_contents = fs::read_to_string(&file).expect("Unable to read file");
+        let data = fs::read_to_string(&file).expect("Unable to read file");
+        let raw: EncodedFile = serde_json::from_str(&data).unwrap();
+        let file_contents = raw.text.clone();
         let mut row_contents = Vec::new();
         file_contents.lines().enumerate().for_each(|(i, line)| {
             let mut row = Row::new(line.into(), String::new());
@@ -103,6 +113,7 @@ impl EditorRows {
         Self {
             filename: Some(file),
             row_contents,
+            raw,
         }
     }
 
@@ -307,7 +318,7 @@ struct Output {
 }
 
 impl Output {
-    fn new() -> Self {
+    fn from_file(path: PathBuf) -> Self {
         let win_size = terminal::size()
             .map(|(x, y)| (x as usize, y as usize - 2))
             .unwrap();
@@ -315,9 +326,9 @@ impl Output {
             win_size,
             editor_contents: EditorContents::new(),
             cursor_controller: CursorController::new(win_size),
-            editor_rows: EditorRows::new(), //modify
+            editor_rows: EditorRows::from_file(path),
             status_message: StatusMessage::new(
-                "HELP: Ctrl-S = Save | Ctrl-Q = Quit | Ctrl-F = Find".into(),
+                "HELP: Ctrl-Q = Quit".into(),
             ),
             dirty: 0,
         }
@@ -515,10 +526,10 @@ struct Editor {
 }
 
 impl Editor {
-    fn new() -> Self {
+    fn from_file(path: PathBuf) -> Self {
         Self {
             reader: Reader,
-            output: Output::new(),
+            output: Output::from_file(path),
         }
     }
 
@@ -597,8 +608,11 @@ impl Editor {
 
 fn main() -> crossterm::Result<()> {
     let _clean_up = CleanUp;
+    let mut args = std::env::args().skip(1).collect::<Vec<String>>();
+    assert_eq!(args.len(), 1);
+    let path = args.pop().unwrap().into();
+    let mut editor = Editor::from_file(path);
     terminal::enable_raw_mode()?;
-    let mut editor = Editor::new();
     while editor.run()? {}
     Ok(())
 }
