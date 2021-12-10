@@ -515,6 +515,34 @@ impl Output {
         }
     }
 
+    fn draw_stacks(&mut self) {
+        let screen_rows = self.win_size.1;
+        let screen_columns = self.win_size.0;
+
+        let offset = self.editor_rows.row_contents[self.cursor_controller.cursor_y].offset + self.cursor_controller.cursor_x;
+
+        let mut frame = &self.editor_rows.traced.by_offset[offset];
+        let mut i = 0;
+        loop {
+            queue!(
+                self.editor_contents,
+                cursor::MoveTo(screen_columns as u16 / 2, i),
+                terminal::Clear(ClearType::UntilNewLine),
+            ).unwrap();
+
+            let line = frame.addr.0[0].name.as_ref().map(|s| s.as_str()).unwrap_or("<unknown>");
+
+            self.editor_contents.push_str(&line[..cmp::min(line.len(), screen_columns / 2)]);
+
+            i += 1;
+            if let Some(parent) = &frame.parent {
+                frame = parent;
+            } else {
+                break;
+            }
+        }
+    }
+
     fn move_cursor(&mut self, direction: KeyCode) {
         self.cursor_controller
             .move_cursor(direction, &self.editor_rows);
@@ -526,6 +554,7 @@ impl Output {
         self.draw_rows();
         self.draw_status_bar();
         self.draw_message_bar();
+        self.draw_stacks();
         let cursor_x = self.cursor_controller.render_x - self.cursor_controller.column_offset;
         let cursor_y = self.cursor_controller.cursor_y - self.cursor_controller.row_offset;
         queue!(
