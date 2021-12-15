@@ -68,7 +68,7 @@ struct Row {
 struct EncodedFrame {
     addr: Option<u64>,
     name: Option<std::string::String>,
-    filename: Option<std::path::PathBuf>,
+    filename: Option<String>,
     lineno: Option<u32>,
     colno: Option<u32>,
 }
@@ -77,7 +77,7 @@ struct EncodedFrame {
 struct EncodedFile {
     addrs: HashMap<u64, Vec<EncodedFrame>>,
     frames: Vec<(u64, u32)>,
-    ranges: Vec<(u32, usize)>,
+    ranges: Vec<(u32, usize, usize)>,
     text: std::string::String,
 }
 
@@ -96,10 +96,43 @@ struct TracedFrame {
     parent: Option<Rc<TracedFrame>>,
 }
 
+fn simplify_path(s: &str) -> String {
+    s.strip_prefix("/Users/joshw/src/github.com/").unwrap_or(s).to_string()
+}
+
+fn simplify_func(s: &str) -> String {
+    s.to_string()
+}
+
+impl TracedFrame {
+    fn should_skip(&self) -> bool {
+        let f = &self.addr.0[0];
+        if let Some(path) = &f.filename {
+            !path.contains("roc/compiler/parse")
+        } else {
+            true
+        }
+    }
+
+    fn name(&self) -> String {
+        let f = &self.addr.0[0];
+        let name = f.name.as_ref().map(|s| simplify_func(s.as_str())).unwrap_or("<unknown>".to_string());
+        name
+    }
+
+    fn describe(&self) -> String {
+        let f = &self.addr.0[0];
+        let file = f.filename.as_ref().map(|s| simplify_path(s)).unwrap_or_else(|| "<unknown>".to_string());
+        let line = f.lineno.unwrap_or(0);
+        let col = f.colno.unwrap_or(0);
+        format!("{}:{}:{}", file, line, col)
+    }
+}
+
 struct TracedBuffer {
     addrs: HashMap<u64, Rc<TracedAddr>>,
     frames: Vec<Rc<TracedFrame>>,
-    by_offset: Vec<Rc<TracedFrame>>,
+    by_offset: Vec<Vec<Rc<TracedFrame>>>,
     heights: Vec<usize>,
     min_height: usize,
     max_height: usize,
@@ -136,14 +169,17 @@ impl TracedBuffer {
 
         let mut by_offset = Vec::with_capacity(raw.text.len());
 
-        for (frame, count) in raw.ranges {
+        for (frame, offset, len) in raw.ranges {
             let frame = &frames[frame as usize];
-            for _ in 0..count {
-                by_offset.push(frame.clone());
+            while by_offset.len() <= offset + len {
+                by_offset.push(Vec::new());
+            }
+            for i in offset..offset + len {
+                by_offset[i].push(frame.clone())
             }
         }
 
-        let heights = by_offset.iter().map(|f| f.height).collect::<Vec<_>>();
+        let heights = by_offset.iter().map(|f| f.iter().map(|f| f.height).max().unwrap_or(0)).collect::<Vec<_>>();
 
         let min_height = heights.iter().min().copied().unwrap_or(0);
         let max_height = heights.iter().max().copied().unwrap_or(0);
@@ -197,6 +233,15 @@ impl EditorRows {
             row_contents.push(row);
             i = n + 1;
         }
+        let line = &text[i..];
+        let mut row = Row {
+            offset: i,
+            row_content: line.into(),
+            render: RenderBuf::new(),
+            column_offsets: Vec::new(),
+        };
+        Self::render_row(&mut row, &traced);
+        row_contents.push(row);
         Self {
             external_files: HashMap::new(),
             filename: Some(file),
@@ -519,26 +564,43 @@ impl Output {
         let screen_rows = self.win_size.1;
         let screen_columns = self.win_size.0;
 
+        if self.cursor_controller.cursor_y >= self.editor_rows.row_contents.len() {
+            return;
+        }
+
         let offset = self.editor_rows.row_contents[self.cursor_controller.cursor_y].offset + self.cursor_controller.cursor_x;
 
-        let mut frame = &self.editor_rows.traced.by_offset[offset];
-        let mut i = 0;
-        loop {
-            queue!(
-                self.editor_contents,
-                cursor::MoveTo(screen_columns as u16 / 2, i),
-                terminal::Clear(ClearType::UntilNewLine),
-            ).unwrap();
+        if let Some(mut frame) = self.editor_rows.traced.by_offset[offset].first() {
+            let mut i = 0;
+            loop {
+                if !frame.should_skip() {
+                    queue!(
+                        self.editor_contents,
+                        cursor::MoveTo(screen_columns as u16 / 2, 2*i),
+                        terminal::Clear(ClearType::UntilNewLine),
+                    ).unwrap();
 
-            let line = frame.addr.0[0].name.as_ref().map(|s| s.as_str()).unwrap_or("<unknown>");
+                    let name_line = frame.name();
 
-            self.editor_contents.push_str(&line[..cmp::min(line.len(), screen_columns / 2)]);
+                    self.editor_contents.push_str(&name_line[..cmp::min(name_line.len(), screen_columns / 2)]);
 
-            i += 1;
-            if let Some(parent) = &frame.parent {
-                frame = parent;
-            } else {
-                break;
+                    queue!(
+                        self.editor_contents,
+                        cursor::MoveTo(screen_columns as u16 / 2, 2*i + 1),
+                        terminal::Clear(ClearType::UntilNewLine),
+                    ).unwrap();
+
+                    let desc_line = format!("  {}", frame.describe());
+
+                    self.editor_contents.push_str(&desc_line[..cmp::min(desc_line.len(), screen_columns / 2)]);
+
+                    i += 1;
+                }
+                if let Some(parent) = &frame.parent {
+                    frame = parent;
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -689,6 +751,9 @@ fn with_screen<T>(f: impl FnOnce() -> T) -> T {
     }));
 
     let res = f();
+
+    terminal::disable_raw_mode().expect("Unable to disable raw mode");
+    Output::clear_screen().expect("error");
 
     res
 }
