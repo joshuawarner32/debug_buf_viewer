@@ -108,7 +108,7 @@ impl TracedFrame {
     fn should_skip(&self) -> bool {
         let f = &self.addr.0[0];
         if let Some(path) = &f.filename {
-            !path.contains("roc/compiler/parse")
+            !path.contains("roc/compiler/fmt")
         } else {
             true
         }
@@ -280,8 +280,10 @@ impl EditorRows {
                 // ResetColor
                 SetBackgroundColor(Color::Rgb {
                     r: (value * 255.0) as u8,
-                    g: (hash & 0xff) as u8,
-                    b: ((hash >> 8) & 0xff) as u8,
+                    g: 0,
+                    b: 0,
+                    // g: (hash & 0xff) as u8,
+                    // b: ((hash >> 8) & 0xff) as u8,
                  })
             ).unwrap();
             index += 1;
