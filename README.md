@@ -1,26 +1,11 @@
-# pound
-![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
+# debug_buf_viewer
 
-This a small text editor written entirely in Rust. It's based on this [tutorial 
-written in C](https://viewsourcecode.org/snaptoken/kilo/index.html).
+Based _heavily_ on the "pound" editor, by Kofi Otuo: https://github.com/Kofituo/pound
 
-This [tutorial](https://medium.com/@otukof/build-your-text-editor-with-rust-678a463f968b) is meant to introduce programming in a fun and easy to understand way. It's also meant to be
-used as a starting point for writing console based text editors and command line interface.
+Used for viewing "debug buf" files, a format designed for debugging tools that produce or consume text buffers.
 
-To use, clone the repository and execute
-```
-cargo run --release
-```
-You can also pass a file name as an argument. For instance
-```
-cargo run --release /src/main.rs
-```
-
-View the full tutorial on how to write a text editor with Rust [here](https://medium.com/@otukof/build-your-text-editor-with-rust-678a463f968b).
-
-
+Highly wip. Do not use. Completely unsupported.
 
 <h2>License</h2>
 
-
-[BSD 2 license](https://github.com/Kofituo/pound/blob/master/LICENSE)
+[BSD 2 license](https://github.com/joshuawarner32/debug_buf_vewier/blob/master/LICENSE)
